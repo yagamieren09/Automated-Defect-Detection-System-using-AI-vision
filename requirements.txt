@@ -1,0 +1,7 @@
+torch
+torchvision
+Pillow
+faiss-cpu
+numpy
+scikit-learn
+tqdm
