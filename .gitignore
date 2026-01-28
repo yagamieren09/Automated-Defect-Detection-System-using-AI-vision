@@ -1,39 +1,27 @@
-# ============================
-# Ignore Large Dataset Folder
-# ============================
+# Ignore dataset folder
 dataset/
 
-# ============================
-# Ignore PatchCore Submodule Folder
-# ============================
+# Ignore PatchCore inspection dataset if present
 patchcore-inspection/
 
-# ============================
-# Python Cache Files
-# ============================
+# Ignore Python cache
 __pycache__/
 *.pyc
 
-# ============================
-# Model Weights / Checkpoints
-# ============================
+# Ignore virtual environment
+venv/
+.env/
+
+# Ignore IDE settings
+.vscode/
+
+# Ignore logs and outputs
+*.log
+outputs/
+results/
+checkpoints/
+
+# Ignore large model files
 *.pth
 *.pt
-
-# ============================
-# Depth / 3D Files (Huge)
-# ============================
-*.tiff
-*.tif
-
-# ============================
-# Logs and Outputs
-# ============================
-*.log
-inference_results*
-
-# ============================
-# System Files
-# ============================
-.DS_Store
-Thumbs.db
+*.onnx
