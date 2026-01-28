@@ -1,0 +1,10 @@
+dataset/
+__pycache__/
+*.pth
+*.pt
+*.tiff
+*.png
+*.jpg
+*.jpeg
+*.zip
+*.rar
