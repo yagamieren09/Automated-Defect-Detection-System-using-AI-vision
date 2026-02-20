@@ -1,27 +1,93 @@
-# Ignore dataset folder
-dataset/
+# ====================
+# Directories to Ignore
+# ====================
 
-# Ignore PatchCore inspection dataset if present
+# Large datasets
+dataset/
+calibration/
 patchcore-inspection/
 
-# Ignore Python cache
-__pycache__/
-*.pyc
-
-# Ignore virtual environment
+# Development environment
 venv/
 .env/
+venv3/
+env/
 
-# Ignore IDE settings
+# IDE and editor settings
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
 
-# Ignore logs and outputs
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+# Third-party tools
+.qodo/
+.lh/
+
+# ====================
+# Files to Ignore
+# ====================
+
+# Logs
 *.log
+logs/
 outputs/
 results/
 checkpoints/
 
-# Ignore large model files
+# Archives (zip, tar, etc.)
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# Images (large visual files)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.tif
+
+# Large model files (binary/weights)
 *.pth
 *.pt
 *.onnx
+*.h5
+*.joblib
+*.pkl
+*.pickle
+
+# FAISS indexes and large indexes
+*.faiss
+
+# Calibration and large config files  
+calibration_config.json
+*calibration*.json
+raw_scores.json
+strategy_comparison.json
+normalization_stats.json
+
+# Inference outputs
+inference/flag_log.json
+inference/output_*/
+
+# Project artifacts
+*.bak
+*.tmp
+.cache
+.hypothesis/

@@ -48,7 +48,8 @@ def main():
         patchsize=3,
         patchstride=1,
         anomaly_scorer_num_nn=1,
-        featuresampler=ApproximateGreedyCoresetSampler(percentage=0.01, device=DEVICE),
+        # 10% coreset for dense depth feature coverage (1% was too aggressive)
+        featuresampler=ApproximateGreedyCoresetSampler(percentage=0.10, device=DEVICE),
         nn_method=FaissNN(False, 4),
     )
     print("PatchCore model loaded.")

@@ -1,102 +1,89 @@
-import os
-import json
 import torch
-import sys
+import torch.nn.functional as F
 import numpy as np
-from PIL import Image
-from torchvision import transforms
+import os
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# Add patchcore to path
-sys.path.append(os.path.abspath(os.path.join("patchcore-inspection", "src")))
+from efficient_ad.model import get_pdn_small, get_autoencoder
+from efficient_ad.dataset import TireDataset, get_transforms
 
-from patchcore.patchcore import PatchCore
-from patchcore.common import FaissNN
+def analyze(dataset_path, model_path, device='cpu'):
+    # Load Model
+    if not os.path.exists(model_path):
+        print(f"Model not found at {model_path}")
+        return
 
-# -----------------------------
-# CONFIG
-# -----------------------------
-MODEL_PATH = "models/patchcore_tire"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-VAL_GOOD_PATH = "dataset/mvtec_3d/tire/validation/good/rgb"
-TEST_GOOD_PATH = "dataset/mvtec_3d/tire/test/good/rgb"
-TEST_DEFECT_PATHS = {
-    "cut": "dataset/mvtec_3d/tire/test/cut/rgb",
-    "contamination": "dataset/mvtec_3d/tire/test/contamination/rgb",
-    "hole": "dataset/mvtec_3d/tire/test/hole/rgb",
-    "combined": "dataset/mvtec_3d/tire/test/combined/rgb"
-}
-
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-
-def get_scores(model, path):
-    if not os.path.exists(path):
-        return []
-    files = [f for f in os.listdir(path) if f.lower().endswith(('.png', '.jpg'))]
-    scores = []
-    for f in tqdm(files, desc=f"Scoring {os.path.basename(os.path.dirname(path))}", leave=False):
-        img = Image.open(os.path.join(path, f)).convert("RGB")
-        img_t = transform(img).unsqueeze(0).to(DEVICE)
-        with torch.no_grad():
-            score_list, _ = model.predict(img_t)
-            score_val = score_list[0]
-            if isinstance(score_val, torch.Tensor):
-                raw_score = score_val.item()
-            else:
-                raw_score = float(score_val)
-            scores.append(raw_score)
-    return scores
-
-def main():
-    print("Loading PatchCore model...")
-    model = PatchCore(device=DEVICE)
-    model.load_from_path(load_path=MODEL_PATH, device=DEVICE, nn_method=FaissNN(False, 4))
+    ckpt = torch.load(model_path, map_location=device)
+    teacher = get_pdn_small().to(device)
+    student = get_pdn_small().to(device)
+    autoencoder = get_autoencoder().to(device)
     
-    print("\nCollecting scores...")
-    val_good = get_scores(model, VAL_GOOD_PATH)
-    test_good = get_scores(model, TEST_GOOD_PATH)
+    teacher.load_state_dict(ckpt['teacher'])
+    student.load_state_dict(ckpt['student'])
+    autoencoder.load_state_dict(ckpt['autoencoder'])
     
-    def_results = {}
-    for name, path in TEST_DEFECT_PATHS.items():
-        def_results[name] = get_scores(model, path)
+    mu, sigma = ckpt['mu'].to(device), ckpt['sigma'].to(device)
     
-    all_defects = [s for sublist in def_results.values() for s in sublist]
-
-    print("\n" + "="*50)
-    print("DISTRIBUTION ANALYSIS (RAW SCORES)")
-    print("="*50)
+    teacher.eval()
+    student.eval()
+    autoencoder.eval()
     
-    def print_stats(name, scores):
-        if not scores: return
-        scores = np.array(scores)
-        print(f"{name:<15}: Count={len(scores)}, Min={scores.min():.4f}, Max={scores.max():.4f}, Mean={scores.mean():.4f}")
-        print(f"{' '*16} p90={np.percentile(scores, 90):.4f}, p95={np.percentile(scores, 95):.4f}, p99={np.percentile(scores, 99):.4f}, p99.9={np.percentile(scores, 99.9):.4f}")
-
-    print_stats("Good Val", val_good)
-    print_stats("Good Test", test_good)
-    print("-" * 50)
-    for name, scores in def_results.items():
-        print_stats(f"Defect: {name}", scores)
-    print("-" * 50)
-    print_stats("ALL DEFECTS", all_defects)
-
-    # Calculate separation using Validation p99 as 1.0 (requested)
-    if val_good:
-        vp99 = np.percentile(val_good, 99)
-        print(f"\nScaling with Validation p99 = {vp99:.4f} (mapping to 1.0)")
+    # Setup Test Data
+    image_size = ckpt.get('image_size', 128)
+    test_transform = get_transforms(image_size=image_size, is_train=False)
+    test_dataset = TireDataset(dataset_path, transform=test_transform, is_train=False)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+    
+    category_scores = {}
+    
+    print(f"Running analysis on {len(test_dataset)} images...")
+    for images, categories, basenames in tqdm(test_loader):
+        images = images.to(device)
+        cat = categories[0]
         
-        def check_thresh(t):
-            fp = sum(1 for s in test_good if s/vp99 >= t)
-            tp = sum(1 for s in all_defects if s/vp99 >= t)
-            print(f"Threshold {t:.2f}: FP={fp}/{len(test_good)} ({fp/len(test_good)*100:.1f}%), TP={tp}/{len(all_defects)} ({tp/len(all_defects)*100:.1f}%)")
+        with torch.no_grad():
+            t_out = (teacher(images) - mu) / (sigma + 1e-6)
+            s_out = student(images)
+            ae_out = autoencoder(images)
+            
+            map_st = torch.mean((t_out - s_out)**2, dim=1, keepdim=True)
+            map_ae = torch.mean((t_out - ae_out)**2, dim=1, keepdim=True)
+            
+            score_st = torch.max(map_st).item()
+            score_ae = torch.max(map_ae).item()
+            score_comb = 0.5 * score_st + 0.5 * score_ae
+            
+        if cat not in category_scores:
+            category_scores[cat] = []
+        category_scores[cat].append({
+            'st': score_st,
+            'ae': score_ae,
+            'comb': score_comb
+        })
+        
+    # Print statistics
+    print("\nScore Statistics by Category:")
+    for cat, scores in category_scores.items():
+        st_scores = [s['st'] for s in scores]
+        ae_scores = [s['ae'] for s in scores]
+        comb_scores = [s['comb'] for s in scores]
+        
+        print(f"{cat:15s} | Count: {len(scores):3d} | ST: {np.mean(st_scores):.4f} | AE: {np.mean(ae_scores):.4f} | Combined: {np.mean(comb_scores):.4f}")
 
-        print("\nThreshold Sweep (Normalized by Validation p99):")
-        for t in [0.85, 0.90, 0.95, 1.0, 1.05, 1.10, 1.20]:
-            check_thresh(t)
+    # Plot distribution
+    plt.figure(figsize=(12, 6))
+    for cat, scores in category_scores.items():
+        comb_scores = [s['comb'] for s in scores]
+        plt.hist(comb_scores, alpha=0.5, label=cat, bins=20)
+    
+    plt.title("Score Distribution by Category")
+    plt.xlabel("Anomaly Score")
+    plt.ylabel("Frequency")
+    plt.legend()
+    plt.savefig("anomaly_distribution.png")
+    print("\nDistribution plot saved to anomaly_distribution.png")
 
 if __name__ == "__main__":
-    main()
+    analyze("dataset/mvtec_3d/tire", "models/efficient_ad_tire.pth")

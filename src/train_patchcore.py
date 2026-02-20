@@ -38,8 +38,8 @@ patchcore.load(
     patchsize=3,
     patchstride=1,
     anomaly_scorer_num_nn=1,
-    # Trying small coreset ratio for better robustness/separation as per some PatchCore papers
-    featuresampler=ApproximateGreedyCoresetSampler(percentage=0.01, device=DEVICE),
+    # Reduced coreset ratio to 4% (0.04) to balance sensitivity and training time/memory
+    featuresampler=ApproximateGreedyCoresetSampler(percentage=0.04, device=DEVICE),
     nn_method=FaissNN(False, 4),
 )
 
